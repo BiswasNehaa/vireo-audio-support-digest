@@ -6,3 +6,9 @@ venv/
 *.egg-info/
 .DS_Store
 out/
+
+# Raw client data pack: contains customer names/cities and free-text
+# messages. Not committed to the (public) repo -- see data/README.txt
+# for how to obtain it.
+data/*.csv
+data/*.pdf
