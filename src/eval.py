@@ -34,6 +34,17 @@ def grounding_check(tickets: pd.DataFrame, week_start: pd.Timestamp) -> dict:
     if not narrative.get("available"):
         return {"week": week_start, "available": False, "reason": narrative.get("reason")}
 
+    # Two very different failure modes get lumped together if we only check
+    # "is this ticket_id in the category it was cited under": (a) the model
+    # invents a ticket_id that doesn't exist anywhere -- a true
+    # hallucination -- vs (b) the model cites a REAL ticket it was actually
+    # given, sampled under a *different* category that week, because every
+    # category's sample sits in the same prompt and the ticket is
+    # topically relevant to the theme it's filed under. (b) is a labelling
+    # slip, not a fabrication -- so it's tracked separately.
+    all_sampled_ids_this_week = set().union(*sampled_ids_by_category.values()) if sampled_ids_by_category else set()
+    all_real_ticket_ids = set(tickets["ticket_id"])
+
     total_themes = 0
     total_citations = 0
     bad_citations = []  # (category, theme, ticket_id, why)
@@ -50,7 +61,13 @@ def grounding_check(tickets: pd.DataFrame, week_start: pd.Timestamp) -> dict:
             for tid in theme.get("ticket_ids", []):
                 total_citations += 1
                 if tid not in valid_ids:
-                    bad_citations.append((category, theme.get("theme"), tid, "not in that category's sample"))
+                    if tid in all_sampled_ids_this_week:
+                        why = "cross_category: real ticket, sampled under a different category this week"
+                    elif tid in all_real_ticket_ids:
+                        why = "unsampled_but_real: real ticket, but not given to the model at all this call"
+                    else:
+                        why = "fabricated: ticket_id does not exist in the dataset"
+                    bad_citations.append((category, theme.get("theme"), tid, why))
             if not theme.get("ticket_ids"):
                 bad_citations.append((category, theme.get("theme"), None, "no citations at all"))
 
@@ -60,6 +77,7 @@ def grounding_check(tickets: pd.DataFrame, week_start: pd.Timestamp) -> dict:
         "total_themes": total_themes,
         "total_citations": total_citations,
         "bad_citations": bad_citations,
+        "fabricated_citations": sum(1 for bc in bad_citations if bc[3].startswith("fabricated")),
         "invented_categories": invented_categories,
         "citation_validity_rate": (
             1.0 if total_citations == 0 else 1 - len(bad_citations) / total_citations
@@ -82,6 +100,7 @@ def run_grounding_eval(tickets: pd.DataFrame, n_weeks: int = 15, seed: int = 42)
                 "total_themes": result.get("total_themes"),
                 "total_citations": result.get("total_citations"),
                 "bad_citations": len(result.get("bad_citations", [])),
+                "fabricated_citations": result.get("fabricated_citations", 0),
                 "invented_categories": len(result.get("invented_categories", [])),
                 "citation_validity_rate": result.get("citation_validity_rate"),
             }
@@ -104,7 +123,9 @@ if __name__ == "__main__":
     print(f"citation validity rate (mean over weeks): {available['citation_validity_rate'].mean():.4f}")
     print(f"total themes: {available['total_themes'].sum()}")
     print(f"total citations: {available['total_citations'].sum()}")
-    print(f"total bad citations: {available['bad_citations'].sum()}")
+    print(f"total bad citations (any mismatch): {available['bad_citations'].sum()}")
+    print(f"  of which truly fabricated (ticket_id doesn't exist): {available['fabricated_citations'].sum()}")
+    print(f"  the rest are cross-category: real ticket, wrong category header")
     print(f"weeks with invented categories: {(available['invented_categories'] > 0).sum()}")
 
     results.to_csv("eval_grounding_results.csv", index=False)
