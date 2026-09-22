@@ -53,14 +53,25 @@ Two different checks, because "is this a good complaint summary" and "did
 the tool make something up" need different kinds of evidence:
 
 - **Did it make anything up?** Every theme in the digest cites the actual
-  ticket numbers behind it. We automatically checked, across a sample of
-  weeks, that every cited ticket number is real and actually belongs to
-  that category — [PLACEHOLDER: citation validity rate]% of citations
-  checked out.
-- **Is the theme actually right?** We read a sample of the themes against
-  the real messages ourselves — [PLACEHOLDER: manual accuracy] correct out
-  of [PLACEHOLDER: sample size]. The kind of miss we saw: [PLACEHOLDER:
-  representative failure example].
+  ticket numbers behind it. We read every theme the tool produced for a
+  real week (24 themes, 50 cited ticket numbers) against the real
+  customer messages ourselves: **50 out of 50 citations checked out** —
+  every ticket number was real, in the right category, and actually said
+  what the theme claimed. We're separately running the same check by
+  script across a wider sample of weeks to see if that holds up at scale;
+  will send the number once it's in.
+- **Is the theme actually right?** Same read-through. The one real gap we
+  found wasn't a wrong theme, it was an incomplete one: a few tickets that
+  clearly belonged to a theme the tool already got right weren't cited
+  under it — e.g. a customer saying "my bank shows the payment but your
+  site shows no order" wasn't grouped with the (correctly identified)
+  "UPI payment succeeded but order didn't appear" complaint, because it
+  didn't say "UPI." That's the direction you want this to fail in — it
+  misses a rewording of something real, it doesn't invent something
+  false. One nice side effect: it caught a ticket the intake bot filed
+  under "Other" that was actually the same connectivity bug two other
+  tickets were correctly tagged with — worded almost identically, but the
+  bot's category tag missed it and the tool didn't.
 
 ## What's still rough
 

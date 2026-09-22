@@ -87,3 +87,25 @@ def run_grounding_eval(tickets: pd.DataFrame, n_weeks: int = 15, seed: int = 42)
             }
         )
     return pd.DataFrame(rows)
+
+
+if __name__ == "__main__":
+    from dotenv import load_dotenv
+
+    from src.data import load_tickets
+
+    load_dotenv()
+    tickets = load_tickets()
+    results = run_grounding_eval(tickets, n_weeks=15)
+    print(results.to_string())
+
+    available = results[results["available"]]
+    print(f"\nweeks checked: {len(results)} (available: {len(available)})")
+    print(f"citation validity rate (mean over weeks): {available['citation_validity_rate'].mean():.4f}")
+    print(f"total themes: {available['total_themes'].sum()}")
+    print(f"total citations: {available['total_citations'].sum()}")
+    print(f"total bad citations: {available['bad_citations'].sum()}")
+    print(f"weeks with invented categories: {(available['invented_categories'] > 0).sum()}")
+
+    results.to_csv("eval_grounding_results.csv", index=False)
+    print("\nSaved to eval_grounding_results.csv")

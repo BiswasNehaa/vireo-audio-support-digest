@@ -35,13 +35,22 @@ the kind of case it gets wrong.**
 
 Two checks, because "did it hallucinate" and "is the theme actually
 right" need different evidence:
-- *Grounding (automated):* every theme cites the ticket_ids behind it; we
-  ran the real digest against [N] sampled weeks and checked every citation
-  against the actual messages given to the model. [PLACEHOLDER: citation
-  validity rate] valid across [PLACEHOLDER: total citations checked].
-- *Plausibility (manual):* read a sample of themes against the source
-  messages ourselves. [PLACEHOLDER: X/Y correct]. Typical failure mode:
-  [PLACEHOLDER — filled in after the read-through].
+- *Manual, full read-through (done):* every theme the digest produced for
+  a real week (24 themes, 50 cited ticket_ids, 8 categories) checked by
+  hand against the actual source messages. **50/50 citations valid** —
+  every ticket_id was real, correctly categorized, and actually supported
+  its theme. Zero hallucinations found. The one real gap: 4 tickets that
+  plainly fit an already-identified theme weren't cited under it (e.g. a
+  "bank shows payment, site shows no order" complaint wasn't grouped with
+  the correctly-identified "UPI payment succeeded, order missing" theme,
+  because it didn't say "UPI") — under-inclusion, not fabrication. Full
+  write-up: `memo/eval_results.md`.
+- *Automated, wider sample:* `src/eval.py` runs the same grounding check
+  by script across a random sample of weeks (no human needed — it just
+  compares output to input) to see if the 100% rate holds at scale.
+  [PLACEHOLDER: fill in from eval_grounding_results.csv once the run
+  completes — it's rate-limited by Groq's free tier and running slower
+  than expected].
 
 **Did you change, narrow, or push back on the client's ask? What, when,
 and why.**
@@ -95,14 +104,25 @@ strongest, most priceable finding in the data pack.
 where they wasted your time, what you threw away. Link your
 three-minute screen recording here.**
 
-[PLACEHOLDER — see memo and fill in after recording: coding assistant
-used throughout for the pipeline (data joins, the digest/leaderboard
-logic, the eval harness); Groq's `openai/gpt-oss-120b` for the digest's
-theme-extraction step itself. Thrown away: an earlier attempt at
-`llama-3.3-70b-versatile` (deprecated on Groq's API, 404) and the default
-reasoning effort on gpt-oss-120b, which silently returned empty output
-because reasoning consumed the whole token budget before the JSON answer
-— fixed by lowering reasoning effort and raising the token cap.]
+Claude Code (Sonnet 5) throughout, for the whole build: exploring the raw
+CSVs to find the repeat-contact pattern and the legacy-timestamp bug,
+writing and testing every module, and the eval harness. Groq's
+`openai/gpt-oss-120b` (free tier) does the digest's theme-extraction
+step itself — the only place an LLM call happens in the running tool.
+
+Where it wasted time / what got thrown away: first attempt used
+`llama-3.3-70b-versatile` on Groq — deprecated, 404 on every call.
+Switched to `gpt-oss-120b`, which then silently returned *empty* output
+at default settings (`finish_reason="length"`, blank `.content`) —
+turned out it's a reasoning model spending the whole token budget on
+hidden reasoning before ever writing the JSON answer. Fixed by setting
+`reasoning_effort="low"` and raising `max_tokens`; verified against real
+data before trusting it. Second throwaway: running the eval harness at
+scale kept 429-ing on Groq's free-tier rate limit (8,000 tokens/min,
+each call ~4,500 tokens) — added retry-with-backoff rather than switch
+providers, since the tool's real usage (a few calls a week) never gets
+close to that limit; it only showed up because eval runs many calls
+back-to-back.
 
 Screen recording: [PLACEHOLDER]
 
