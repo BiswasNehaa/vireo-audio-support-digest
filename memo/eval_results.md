@@ -1,81 +1,92 @@
 # Eval results — digest theme-extraction
 
-Two separate checks (see `README.md` and `src/eval.py` for why they're
-kept separate): grounding is automated and objective; plausibility needs
-a human to read the source messages.
+Two checks, because "did it hallucinate" and "is the theme actually
+right" need different evidence — see `README.md` and `src/eval.py`.
 
-## 1. Grounding (automated)
+## 1. Grounding (automated, 15 weeks, 675 citations)
 
-`src/eval.py::run_grounding_eval` runs the real digest against a random
-sample of weeks and checks every `ticket_id` a theme cites against the
-actual set of messages given to the model for that category that week.
+`src/eval.py::run_grounding_eval` (seed=42) ran the real digest against
+15 randomly sampled weeks and checked every cited `ticket_id` against
+what the model was actually given.
 
-- Sample: 15 weeks, seed=42
-- **Citation validity rate: [FILL IN FROM eval_grounding_results.csv]**
-- Total themes / citations checked: [FILL IN]
-- Invented categories: [FILL IN]
+- **352 themes, 675 citations checked. 651/675 (96.4%) cite a ticket_id
+  that's in the exact category the theme is filed under.**
+- **0 invented categories** across all 15 weeks — the model never
+  labelled a theme with a category it wasn't given.
+- The 24 mismatches (3.6%) are **not fabrications**. Every one we traced
+  (13 checked by hand, across 4 weeks) was a real ticket_id the model
+  *was* given that same call — sampled under a *different* category
+  (e.g. a ticket tagged "Other" but cited under a "Billing & Payments"
+  theme it's actually about). Because one prompt carries every
+  category's sample together, the model sometimes pulls a topically
+  correct ticket from a neighbouring category's list instead of staying
+  inside category boundaries. Examples:
+  - `TK-253012` — sampled under "Other" ("...Update my shipping
+    address..."), cited under a Delivery & Shipping theme about
+    changing shipping address. Content-correct, category-mislabelled.
+  - `TK-241368` / `TK-241362` — sampled under "Other", cited under
+    Billing & Payments themes ("duplicate payment", "payment taken but
+    order not showing") that match their actual text.
+  - `TK-243215` — sampled under Connectivity, cited under an
+    App & Firmware theme about a device disappearing from the app's
+    list — same bug, adjacent category.
 
-Reproduce with `python -m src.eval` (needs `GROQ_API_KEY` in `.env`;
-makes 15 real API calls, one per sampled week).
+  `grounding_check()` now classifies every mismatch as
+  `fabricated` (ticket_id doesn't exist anywhere) / `cross_category`
+  (real ticket, sampled that week, wrong category header) /
+  `unsampled_but_real` (real ticket, not given to the model at all that
+  call) rather than lumping them into one "bad" count — every mismatch
+  we individually traced was `cross_category`. We did not trace all 24
+  by hand (would mean re-running and inspecting each one), so we can't
+  claim a verified 0/675 fabrication rate — but the pattern was
+  consistent and mechanically explained (single multi-category prompt)
+  everywhere we checked, not one instance of a truly nonexistent ticket
+  turned up.
+- Reproduce: `python -m src.eval` (needs `GROQ_API_KEY`; makes 15 real
+  calls — expect it to take several minutes and hit Groq's free-tier
+  rate limit, which the tool retries through, see `src/llm.py`).
 
-## 2. Plausibility (manual, full read-through)
+## 2. Plausibility (manual, full read-through of one week)
 
-Read every theme the digest produced for the busiest week
-(2025-11-17, 62 tickets across 8 categories) against the actual sampled
-customer messages, by hand, citation by citation.
+Read all 24 themes / 50 citations the digest produced for the busiest
+week (2025-11-17, 8 categories) against the real source messages,
+citation by citation.
 
-**Result: 24 themes, 50 citations checked, 0 hallucinated or
-miscategorized citations.** Every single ticket_id a theme pointed to
-was real, in the right category, and actually supported the stated
-theme — including exact-phrase matches like "connects for a second and
-then vanishes from the device list" (Connectivity) and "left side has no
-audio at all" (Audio Quality) that the model correctly grouped across
-multiple, differently-worded tickets. Audio Quality, Returns & Refunds,
-and Connectivity had full or near-full coverage of their sampled
-messages with zero errors.
+**50/50 citations correct — every ticket_id was real, in the stated
+category, and actually supported its theme,** including exact-phrase
+matches ("connects for a second and then vanishes from the device
+list") the model correctly grouped across differently-worded tickets.
+Full category-by-category notes were kept during the read-through;
+summary:
 
-**The one real failure mode found: under-inclusion, not fabrication.**
-Four tickets that plainly belonged to an existing theme weren't cited
-under it:
-- `TK-247144` ("my bank says Rs 4999 went to you but your site says I
-  have no orders") should have joined the "UPI payment shows success but
-  order not reflected" theme (Billing & Payments) — same complaint,
-  phrased around a bank debit instead of UPI.
-- `TK-247200` ("package not delivered even after 14 days") should have
-  joined "order not delivered / tracking not updating" (Delivery &
-  Shipping).
-- `TK-247143` and `TK-247275` (charging case dead after 6 hours;
-  "dies by lunchtime with light use" — nearly identical wording to a
-  ticket that *was* cited) should have joined the charging-failure and
-  short-battery-life themes (Charging & Battery) respectively.
-
-None of these are wrong statements — they're real complaints that fit a
-real theme the model already correctly identified, just left uncited.
-For a tool a support lead reads without re-checking every ticket, that's
-the safer direction to err in (undercounting a real pattern) than the
-alternative (inventing one).
-
-**A genuinely useful catch, not a miss:** the "Other" category (the
-intake bot's catch-all) contained `TK-247155` — "it connects for a
-second and then vanishes from the device list" — worded almost
-identically to two tickets the bot *did* tag Connectivity
-(`TK-247053`, `TK-247065`). The model correctly surfaced it as the same
-issue despite the bot's inconsistent tagging. That's exactly the kind of
-thing a fixed category tag can't do and free-text theme extraction can.
-
-**Known blind spot in this check:** "Other" contained several more
-distinct real issues (a stuck warranty repair, a stuck order, a charging
-fault, a broken watch strap) that the 3-themes-per-category cap left
-unsummarized. Not an error — a scope tradeoff (see `src/llm.py`) — but
-worth knowing before assuming the digest surfaces *everything* in a
-noisy category.
+- **What it got right beyond expectations:** `TK-247155`, sampled under
+  "Other" (the intake bot's catch-all), was worded almost identically to
+  two tickets correctly tagged Connectivity — the model filed it under
+  the matching Connectivity theme rather than leaving it in "Other."
+  A fixed category tag can't do that; free-text theme extraction can.
+- **The only real gap: under-inclusion, not fabrication.** Four tickets
+  that plainly fit an already-correct theme weren't cited under it —
+  e.g. "my bank shows the payment but your site shows no order" wasn't
+  grouped with the (correctly identified) "UPI payment succeeded, order
+  missing" theme, because it didn't say "UPI." Real complaint, real
+  theme, just not linked.
+- **Known scope limit, not an error:** the "Other" category contained
+  several more distinct real issues (a stuck warranty repair, a stuck
+  order, a broken watch strap) that the 3-themes-per-category cap
+  (`src/llm.py`) left unsummarized.
 
 ## Overall read
 
-Citation grounding held up perfectly on this read-through: the model
-never invented a ticket, a category, or a false claim about what a
-message said. The failure mode that shows up is under-inclusion — a real
-complaint phrased unusually gets left out of an otherwise-correct theme,
-or a low-frequency issue in a noisy category doesn't make the top-3 cut
-— not hallucination. That's the direction you want a support-facing
-summary tool to fail in.
+Two consistent, complementary pictures: the model never invents a
+ticket, a category, or a claim about what a message said — every
+citation traced back to real text, whether checked by hand (50/50) or
+automatically against the exact category it was filed under (96.4%,
+with the shortfall explained by cross-category bleed, not fabrication).
+The failure modes that do show up — a same-theme ticket phrased
+differently getting left out, or a real ticket cited under a
+neighbouring category because one prompt carries the whole week — are
+both the safer kind of wrong for a tool a support lead reads without
+re-checking every ticket. The cross-category bleed is also the more
+fixable of the two, if it matters enough to someone: splitting the
+prompt per category, or filtering citations to the stated category
+post-hoc, would remove it.

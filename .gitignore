@@ -12,3 +12,8 @@ out/
 # for how to obtain it.
 data/*.csv
 data/*.pdf
+
+# Scratch dumps used while manually verifying the eval -- contain raw
+# customer message text, same PII concern as the data pack above.
+eval_narrative_sample.json
+eval_sample_messages.json

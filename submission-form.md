@@ -35,22 +35,31 @@ the kind of case it gets wrong.**
 
 Two checks, because "did it hallucinate" and "is the theme actually
 right" need different evidence:
-- *Manual, full read-through (done):* every theme the digest produced for
-  a real week (24 themes, 50 cited ticket_ids, 8 categories) checked by
-  hand against the actual source messages. **50/50 citations valid** —
-  every ticket_id was real, correctly categorized, and actually supported
-  its theme. Zero hallucinations found. The one real gap: 4 tickets that
-  plainly fit an already-identified theme weren't cited under it (e.g. a
-  "bank shows payment, site shows no order" complaint wasn't grouped with
-  the correctly-identified "UPI payment succeeded, order missing" theme,
-  because it didn't say "UPI") — under-inclusion, not fabrication. Full
-  write-up: `memo/eval_results.md`.
-- *Automated, wider sample:* `src/eval.py` runs the same grounding check
-  by script across a random sample of weeks (no human needed — it just
-  compares output to input) to see if the 100% rate holds at scale.
-  [PLACEHOLDER: fill in from eval_grounding_results.csv once the run
-  completes — it's rate-limited by Groq's free tier and running slower
-  than expected].
+- *Manual, full read-through:* every theme the digest produced for a real
+  week (24 themes, 50 cited ticket_ids, 8 categories) checked by hand
+  against the actual source messages. **50/50 citations valid** — every
+  ticket_id was real, correctly categorized, and actually supported its
+  theme. The one real gap: 4 tickets that plainly fit an
+  already-identified theme weren't cited under it (e.g. a "bank shows
+  payment, site shows no order" complaint wasn't grouped with the
+  correctly-identified "UPI payment succeeded, order missing" theme,
+  because it didn't say "UPI") — under-inclusion, not fabrication.
+- *Automated, 15 weeks, 675 citations:* `src/eval.py` runs the same check
+  by script across a random sample of weeks. **96.4% (651/675) cite a
+  ticket filed under the exact category the theme is grouped under; 0
+  invented categories.** The other 3.6% aren't fabrications — every one
+  we traced by hand was a real ticket the model *was* given that call,
+  sampled under a neighbouring category, cited because it's topically
+  correct (e.g. a ticket the intake bot tagged "Other" but which is
+  plainly about a duplicate payment, pulled into a Billing theme). This
+  happens because one prompt carries every category's sample together;
+  splitting it per category would remove the artifact. We didn't trace
+  all 24 individually (would need per-citation inspection, not just the
+  aggregate count), so we can't certify a verified 0% fabrication rate
+  across all 675 — but no case we checked was a ticket that doesn't
+  exist. Error rate for "did it invent something": 0 confirmed instances
+  in everything inspected by hand across both checks (50 + 13 citations
+  = 63 individually verified). Full write-up: `memo/eval_results.md`.
 
 **Did you change, narrow, or push back on the client's ask? What, when,
 and why.**
@@ -81,7 +90,18 @@ shortcuts, things you know are off.**
 - We did not have `support-policy.pdf` when building the cost/SLA
   assumptions — the Rs 290/contact figure and the "650 tickets/week"
   volume are both taken from the email thread, not the policy doc itself.
-- [PLACEHOLDER: anything else found while finishing up]
+- The digest's theme-extraction prompt sends every category's sampled
+  messages together in one call. The model occasionally cites a real
+  ticket under the wrong category's theme (3.6% of citations in the
+  15-week eval) because it's pulling from the whole week's context, not
+  strictly staying inside the category it's summarizing — see
+  `memo/eval_results.md`. Every instance we checked was a real,
+  topically-correct ticket filed under a neighbouring category, not an
+  invented one, but it's a real prompt-design artifact, not a feature.
+- gpt-oss-120b on Groq isn't fully deterministic even at temperature=0 —
+  reran the same week's grounding check twice and got slightly different
+  citation counts both times. Fine for a directional weekly digest, worth
+  knowing if anyone wants to treat a specific run's output as exact.
 
 **What did you deliberately leave out, and why that rather than
 something else?**

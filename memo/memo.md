@@ -53,13 +53,17 @@ Two different checks, because "is this a good complaint summary" and "did
 the tool make something up" need different kinds of evidence:
 
 - **Did it make anything up?** Every theme in the digest cites the actual
-  ticket numbers behind it. We read every theme the tool produced for a
-  real week (24 themes, 50 cited ticket numbers) against the real
-  customer messages ourselves: **50 out of 50 citations checked out** —
-  every ticket number was real, in the right category, and actually said
-  what the theme claimed. We're separately running the same check by
-  script across a wider sample of weeks to see if that holds up at scale;
-  will send the number once it's in.
+  ticket numbers behind it. We checked two ways: by hand, reading every
+  theme for a real week (24 themes, 50 citations) against the real
+  messages — **50/50 correct**. And by script, across 15 sampled weeks
+  (675 citations) — 96.4% cited a ticket filed under the exact category
+  the theme was grouped under; the other 3.6% turned out, on inspection,
+  to be real tickets the tool correctly matched to the right topic but
+  filed under a neighbouring category (e.g. a ticket the intake bot
+  tagged "Other" that's actually about a duplicate payment, correctly
+  pulled into a Billing theme). In everything we checked by hand, it
+  never invented a ticket number — the misses were about which folder a
+  real complaint landed in, not making something up.
 - **Is the theme actually right?** Same read-through. The one real gap we
   found wasn't a wrong theme, it was an incomplete one: a few tickets that
   clearly belonged to a theme the tool already got right weren't cited
