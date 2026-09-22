@@ -59,11 +59,7 @@ omitted.
 ## Tests
 
 ```bash
-python tests/test_data.py
-python tests/test_metrics.py
-python tests/test_leaderboard.py
-python tests/test_digest.py
-python tests/test_eval.py
+python tests/run_all.py
 ```
 
 (Plain scripts, not pytest, so there's no extra dependency — each prints
