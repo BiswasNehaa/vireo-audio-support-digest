@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import time
 
 DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
 DEFAULT_MODEL = "openai/gpt-oss-120b"
@@ -49,6 +51,15 @@ Respond with JSON only, no markdown fences, matching this shape:
 
 class LLMUnavailable(RuntimeError):
     pass
+
+
+MAX_RATE_LIMIT_RETRIES = 5
+_RETRY_AFTER_RE = re.compile(r"try again in ([\d.]+)s", re.IGNORECASE)
+
+
+def _retry_after_seconds(error, default: float = 20.0) -> float:
+    match = _RETRY_AFTER_RE.search(str(error))
+    return float(match.group(1)) + 1.0 if match else default
 
 
 def get_client():
@@ -93,21 +104,36 @@ def summarise_week(category_messages: dict[str, list[tuple[str, str]]]) -> dict:
             lines.append(f"- [{ticket_id}] {snippet}")
     user_content = "\n".join(lines)
 
-    response = client.chat.completions.create(
-        model=_model(),
-        max_tokens=4000,
-        temperature=0,
-        # gpt-oss (the default Groq model) is a reasoning model: it spends
-        # completion tokens on hidden reasoning before the JSON answer, and
-        # at reasoning_effort="medium"/"high" that reasoning alone can eat
-        # the whole max_tokens budget and cut the response off truncated
-        # (finish_reason="length", empty .content). "low" leaves enough
-        # headroom for this prompt's output.
-        reasoning_effort="low",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-    )
+    import openai
+
+    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model=_model(),
+                max_tokens=4000,
+                temperature=0,
+                # gpt-oss (the default Groq model) is a reasoning model: it
+                # spends completion tokens on hidden reasoning before the
+                # JSON answer, and at reasoning_effort="medium"/"high" that
+                # reasoning alone can eat the whole max_tokens budget and
+                # cut the response off truncated (finish_reason="length",
+                # empty .content). "low" leaves enough headroom for this
+                # prompt's output.
+                reasoning_effort="low",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+            )
+            break
+        except openai.RateLimitError as e:
+            # Groq's free tier caps gpt-oss-120b at 8,000 tokens/minute;
+            # this prompt alone runs ~4,300-4,900 tokens, so back-to-back
+            # weekly calls (e.g. backfilling a digest history) trip it
+            # well before any per-day quota. Retry with the wait time Groq
+            # tells us to use, rather than fail the whole digest.
+            if attempt == MAX_RATE_LIMIT_RETRIES:
+                raise
+            time.sleep(_retry_after_seconds(e))
     text = response.choices[0].message.content
     return json.loads(_strip_code_fence(text))
