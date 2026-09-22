@@ -1,4 +1,4 @@
-"""Thin Anthropic wrapper for the digest's theme-summarisation step.
+"""Thin LLM wrapper for the digest's theme-summarisation step.
 
 Deliberately the only place in the codebase that calls out to a model.
 Everything that can be computed with pandas (counts, rates, the
@@ -6,18 +6,24 @@ leaderboard, the business-KPI number) is computed with pandas -- the LLM
 is used for exactly one thing it's actually needed for: turning a batch of
 free-text customer messages into short, human-readable complaint themes.
 
+Uses Groq's free-tier API (OpenAI-compatible) so a month of weekly digests
+at Vireo's volume costs Rs 0 -- see memo for the arithmetic. Swappable to
+any other OpenAI-compatible endpoint via LLM_BASE_URL/LLM_API_KEY/LLM_MODEL
+if Groq's free tier ever isn't enough.
+
 Cost shape matters here (see memo): one call per week covering ALL
-categories, not one call per ticket or per category, and not one call per
-week * category. A week's digest is capped at MAX_MESSAGES_PER_WEEK
-sampled messages regardless of how many tickets that week actually has, so
-the bill doesn't scale with ticket volume past that cap.
+categories, not one call per ticket or per category. A week's digest is
+capped at MAX_MESSAGES_PER_WEEK sampled messages regardless of how many
+tickets that week actually has, so the bill doesn't scale with ticket
+volume past that cap.
 """
 from __future__ import annotations
 
 import json
 import os
 
-MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 MAX_MESSAGES_PER_CATEGORY = 8
 MAX_MESSAGES_PER_WEEK = 60
 
@@ -36,7 +42,7 @@ count, or a ticket_id that isn't in the input.
 plainly rather than inventing one.
 - Keep each theme description to one plain-English sentence, no jargon.
 
-Respond with JSON only, matching this shape:
+Respond with JSON only, no markdown fences, matching this shape:
 {"categories": [{"category": str, "themes": [{"theme": str, "ticket_ids": [str, ...]}]}]}
 """
 
@@ -46,15 +52,30 @@ class LLMUnavailable(RuntimeError):
 
 
 def get_client():
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise LLMUnavailable(
-            "ANTHROPIC_API_KEY is not set. Digest will run with deterministic "
-            "category/volume stats only -- no theme narrative. See README.md."
+            "No GROQ_API_KEY (or LLM_API_KEY) set. Digest will run with deterministic "
+            "category/volume stats only -- no theme narrative. Free key: "
+            "https://console.groq.com. See README.md."
         )
-    import anthropic
+    from openai import OpenAI
 
-    return anthropic.Anthropic(api_key=api_key)
+    base_url = os.environ.get("LLM_BASE_URL", DEFAULT_BASE_URL)
+    return OpenAI(api_key=api_key, base_url=base_url)
+
+
+def _model() -> str:
+    return os.environ.get("LLM_MODEL", DEFAULT_MODEL)
+
+
+def _strip_code_fence(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text
+        if text.endswith("```"):
+            text = text.rsplit("```", 1)[0]
+    return text.strip()
 
 
 def summarise_week(category_messages: dict[str, list[tuple[str, str]]]) -> dict:
@@ -68,15 +89,25 @@ def summarise_week(category_messages: dict[str, list[tuple[str, str]]]) -> dict:
     for category, messages in category_messages.items():
         lines.append(f"## {category} ({len(messages)} sample messages)")
         for ticket_id, message in messages:
-            snippet = " ".join(message.split())[:300]
+            snippet = " ".join(str(message).split())[:300]
             lines.append(f"- [{ticket_id}] {snippet}")
     user_content = "\n".join(lines)
 
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=2000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
+    response = client.chat.completions.create(
+        model=_model(),
+        max_tokens=4000,
+        temperature=0,
+        # gpt-oss (the default Groq model) is a reasoning model: it spends
+        # completion tokens on hidden reasoning before the JSON answer, and
+        # at reasoning_effort="medium"/"high" that reasoning alone can eat
+        # the whole max_tokens budget and cut the response off truncated
+        # (finish_reason="length", empty .content). "low" leaves enough
+        # headroom for this prompt's output.
+        reasoning_effort="low",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
     )
-    text = response.content[0].text
-    return json.loads(text)
+    text = response.choices[0].message.content
+    return json.loads(_strip_code_fence(text))
